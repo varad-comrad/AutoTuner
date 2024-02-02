@@ -1,5 +1,7 @@
 from typing import Self
 import sklearn
+import pandas as pd
+from IPython.display import display
 
 
 class SKLearnModelSelection:
@@ -10,13 +12,13 @@ class SKLearnModelSelection:
 
     }
 
-    def __init__(self, models: list, selector: str | sklearn.model_selection.BaseSearchCV='grid_search',
+    def __init__(self, models: list, selector: str | sklearn.model_selection._search.BaseSearchCV='grid_search',
                  random_state: int | list[int|None] | None = None) -> None:
         self.model_classes = models
-        if not isinstance(selector, str | sklearn.model_selection.BaseSearchCV):
+        if not isinstance(selector, (str, sklearn.model_selection._search.BaseSearchCV)):
             raise TypeError('Selector must be a string or an instance of sklearn.model_selection.BaseSearchCV') 
 
-        if isinstance(self.selector, str):
+        if isinstance(selector, str):
             try:
                 self.selector = self.selectors[selector]
             except KeyError:
@@ -29,13 +31,10 @@ class SKLearnModelSelection:
         self.best_model = None
         self.best_params = None
     
-    def compile(self, X_train,
-                y_train, 
+    def compile(self, params,
                 cv: int | None = 5,
                 n_jobs: int = -1) -> Self:
-        
-        self.X_train = X_train
-        self.y_train = y_train
+        self.params = params
         self.cv = cv
         self.n_jobs = n_jobs
 
@@ -55,32 +54,40 @@ class SKLearnModelSelection:
             
         if self.keep_all_models:
             self.all_models_.append(
-                (selector.best_estimator_, selector.best_params_, selector.best_score_))
-        else:
-            if selector.best_score_ > self.best_score:
-                self.best_random_state = model.random_state
-                self.best_score = selector.best_score_
-                self.best_model = selector.best_estimator_
-                self.best_params = selector.best_params_
+                (type(model).__name__, selector.best_estimator_, selector.best_params_, selector.best_score_))
+        if selector.best_score_ > self.best_score:
+            self.best_random_state = model.random_state
+            self.best_score = selector.best_score_
+            self.best_model = selector.best_estimator_
+            self.best_params = selector.best_params_
     
     def __fit_loop(self) -> Self:
         models = []
         if isinstance(self.random_state, list):
             for random_state in self.random_state:
                 models.extend([model(random_state=random_state) for model in self.model_classes])
+            self.params *= len(self.random_state)
         else:
             models = [model(random_state=self.random_state) for model in self.model_classes]
         for model, param in zip(models, self.params):
             self.__fit_once(model, param)
-        
+        if self.keep_all_models: 
+            self.results = pd.DataFrame(self.all_models_, columns=['Model', 'Best Estimator', 'Best params', 'Best score'])
         return self
     
     def __verbose_msg(self, model, selector):
-        print(f'Model: {type(model)}', '=====================', f'Best estimator: {selector.best_estimator_}', f'Best params: {selector.best_params_}',
-              f'{selector.best_score_}', sep='\n\n')
+        display(pd.DataFrame({
+            'Model': [type(model).__name__],
+            'Best estimator': [selector.best_estimator_],
+            'Best params': [selector.best_params_],
+            'Best score': [selector.best_score_]
+        }),)
+        print('\n' + '=' * 150)
         
-    def fit(self, params, scoring: str = 'accuracy', keep_all_models: bool=False, verbose=True) -> Self:
-        self.params = params
+    def fit(self, X_train, y_train, scoring: str = 'accuracy', keep_all_models: bool=False, verbose=True) -> Self:
+        self.X_train = X_train
+        self.y_train = y_train
+
         self.scoring = scoring
         self.best_score = 0
         self.keep_all_models = keep_all_models
