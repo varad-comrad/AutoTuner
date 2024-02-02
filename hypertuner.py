@@ -11,9 +11,8 @@ class SKLearnModelSelection:
     }
 
     def __init__(self, models: list, selector: str | sklearn.model_selection.BaseSearchCV='grid_search',
-                 random_state: int | None = None) -> None:
+                 random_state: int | list[int|None] | None = None) -> None:
         self.model_classes = models
-        self.models = [model(random_state=random_state) for model in models]
         if not isinstance(selector, str | sklearn.model_selection.BaseSearchCV):
             raise TypeError('Selector must be a string or an instance of sklearn.model_selection.BaseSearchCV') 
 
@@ -42,28 +41,38 @@ class SKLearnModelSelection:
 
         return self
     
+    def __fit_once(self, model, param):
+        selector = self.selector(
+            model,
+            param_grid=param,
+            cv=self.cv,
+            scoring=self.scoring,
+            n_jobs=self.n_jobs
+        )
+        selector.fit(self.X_train, self.y_train)
+        if self.verbose:
+            self.__verbose_msg(model, selector)
+            
+        if self.keep_all_models:
+            self.all_models_.append(
+                (selector.best_estimator_, selector.best_params_, selector.best_score_))
+        else:
+            if selector.best_score_ > self.best_score:
+                self.best_random_state = model.random_state
+                self.best_score = selector.best_score_
+                self.best_model = selector.best_estimator_
+                self.best_params = selector.best_params_
+    
     def __fit_loop(self) -> Self:
-        for model, param in zip(self.models, self.params):
-            selector = self.selector(
-                model,
-                param_grid=param,
-                cv=self.cv,
-                scoring=self.scoring,
-                n_jobs=self.n_jobs
-            )
-            selector.fit(self.X_train, self.y_train)
-            if self.verbose:
-                self.__verbose_msg(model, selector)
-                
-            if self.keep_all_models:
-                self.all_models_.append(
-                    (selector.best_estimator_, selector.best_params_, selector.best_score_))
-            else:
-                if selector.best_score_ > self.best_score:
-                    self.best_score = selector.best_score_
-                    self.best_model = selector.best_estimator_
-                    self.best_params = selector.best_params_
-
+        models = []
+        if isinstance(self.random_state, list):
+            for random_state in self.random_state:
+                models.extend([model(random_state=random_state) for model in self.model_classes])
+        else:
+            models = [model(random_state=self.random_state) for model in self.model_classes]
+        for model, param in zip(models, self.params):
+            self.__fit_once(model, param)
+        
         return self
     
     def __verbose_msg(self, model, selector):
@@ -81,4 +90,4 @@ class SKLearnModelSelection:
         return self.__fit_loop()
     
     def build_best_model(self): 
-        return type(self.best_model)(random_state=self.random_state, **self.best_params)
+        return type(self.best_model)(random_state=self.best_random_state, **self.best_params)
