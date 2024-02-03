@@ -1,4 +1,4 @@
-# HyperTuner
+# AutoTuner
 Hyperparameter optimizer and model selector for scikit-learn
 
 ## TODO:
